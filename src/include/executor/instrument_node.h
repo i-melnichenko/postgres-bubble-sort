@@ -141,8 +141,9 @@ typedef enum
 	SORT_TYPE_BUBBLESORT = 1 << 4,
 	SORT_TYPE_EXTERNAL_SORT_BUBBLE = 1 << 5,
 	SORT_TYPE_EXTERNAL_MERGE_BUBBLE = 1 << 6,
+	SORT_TYPE_TOP_N_HEAPSORT_BUBBLE_FINALIZE = 1 << 7,
 } TuplesortMethod;
-#define NUM_TUPLESORTMETHODS 7
+#define NUM_TUPLESORTMETHODS 8
 
 typedef struct TuplesortInstrumentation
 {

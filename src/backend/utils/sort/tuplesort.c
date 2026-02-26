@@ -2443,20 +2443,20 @@ tuplesort_get_stats(Tuplesortstate *state,
 		stats->spaceType = SORT_SPACE_TYPE_MEMORY;
 	stats->spaceUsed = (state->maxSpace + 1023) / 1024;
 
-		switch (state->maxSpaceStatus)
-		{
-			case TSS_SORTEDINMEM:
-				if (state->boundUsed)
-					stats->sortMethod = SORT_TYPE_TOP_N_HEAPSORT;
-				else
-					stats->sortMethod = SORT_TYPE_BUBBLESORT;
-				break;
-			case TSS_SORTEDONTAPE:
-				stats->sortMethod = SORT_TYPE_EXTERNAL_SORT_BUBBLE;
-				break;
-			case TSS_FINALMERGE:
-				stats->sortMethod = SORT_TYPE_EXTERNAL_MERGE_BUBBLE;
-				break;
+	switch (state->maxSpaceStatus)
+	{
+		case TSS_SORTEDINMEM:
+			if (state->boundUsed)
+				stats->sortMethod = SORT_TYPE_TOP_N_HEAPSORT_BUBBLE_FINALIZE;
+			else
+				stats->sortMethod = SORT_TYPE_BUBBLESORT;
+			break;
+		case TSS_SORTEDONTAPE:
+			stats->sortMethod = SORT_TYPE_EXTERNAL_SORT_BUBBLE;
+			break;
+		case TSS_FINALMERGE:
+			stats->sortMethod = SORT_TYPE_EXTERNAL_MERGE_BUBBLE;
+			break;
 		default:
 			stats->sortMethod = SORT_TYPE_STILL_IN_PROGRESS;
 			break;
@@ -2475,19 +2475,21 @@ tuplesort_method_name(TuplesortMethod m)
 			return "still in progress";
 		case SORT_TYPE_TOP_N_HEAPSORT:
 			return "top-N heapsort";
+		case SORT_TYPE_TOP_N_HEAPSORT_BUBBLE_FINALIZE:
+			return "top-N heapsort + bubble finalize";
 		case SORT_TYPE_QUICKSORT:
 			return "quicksort";
 		case SORT_TYPE_EXTERNAL_SORT:
 			return "external sort";
-			case SORT_TYPE_EXTERNAL_MERGE:
-				return "external merge";
-			case SORT_TYPE_BUBBLESORT:
-				return "bubble sort";
-			case SORT_TYPE_EXTERNAL_SORT_BUBBLE:
-				return "external sort (bubble runs)";
-			case SORT_TYPE_EXTERNAL_MERGE_BUBBLE:
-				return "external merge (bubble runs)";
-		}
+		case SORT_TYPE_EXTERNAL_MERGE:
+			return "external merge";
+		case SORT_TYPE_BUBBLESORT:
+			return "bubble sort";
+		case SORT_TYPE_EXTERNAL_SORT_BUBBLE:
+			return "external sort (bubble runs)";
+		case SORT_TYPE_EXTERNAL_MERGE_BUBBLE:
+			return "external merge (bubble runs)";
+	}
 
 	return "unknown";
 }
@@ -2576,25 +2578,18 @@ sort_bounded_heap(Tuplesortstate *state)
 	Assert(SERIAL(state));
 
 	/*
-	 * We can unheapify in place because each delete-top call will remove the
-	 * largest entry, which we can promptly store in the newly freed slot at
-	 * the end.  Once we're down to a single-entry heap, we're done.
-	 */
-	while (state->memtupcount > 1)
-	{
-		SortTuple	stup = state->memtuples[0];
-
-		/* this sifts-up the next-largest entry and decreases memtupcount */
-		tuplesort_heap_delete_top(state);
-		state->memtuples[state->memtupcount] = stup;
-	}
-	state->memtupcount = tupcount;
-
-	/*
-	 * Reverse sort direction back to the original state.  This is not
-	 * actually necessary but seems like a good idea for tidiness.
+	 * The bounded heap is maintained with reversed sort direction (largest
+	 * original tuple at root).  Restore the original comparator semantics
+	 * before materializing the final sorted array.
 	 */
 	reversedirection(state);
+
+	/*
+	 * The top-N set has already been selected by heap logic in
+	 * make_bounded_heap(); now sort just those tuples using bubble sort.
+	 */
+	bubble_sort_memtuples(state);
+	state->memtupcount = tupcount;
 
 	state->status = TSS_SORTEDINMEM;
 	state->boundUsed = true;
